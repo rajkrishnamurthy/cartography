@@ -5,14 +5,21 @@ import botocore.exceptions
 
 from . import dynamodb
 from . import ec2
+from . import ecr
+from . import eks
 from . import elasticsearch
 from . import iam
+from . import lambda_function
 from . import organizations
+from . import permission_relationships
 from . import rds
+from . import redshift
+from . import resourcegroupstaggingapi
 from . import route53
 from . import s3
 from cartography.util import run_analysis_job
 from cartography.util import run_cleanup_job
+from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +43,11 @@ def _sync_one_account(neo4j_session, boto3_session, account_id, sync_tag, common
 
     dynamodb.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
     ec2.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
+    ecr.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
+    eks.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
+    lambda_function.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
     rds.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
+    redshift.sync(neo4j_session, boto3_session, regions, account_id, sync_tag, common_job_parameters)
 
     # NOTE each of the below will generate DNS records
     route53.sync(neo4j_session, boto3_session, account_id, sync_tag)
@@ -44,6 +55,33 @@ def _sync_one_account(neo4j_session, boto3_session, account_id, sync_tag, common
 
     # NOTE clean up all DNS records, regardless of which job created them
     run_cleanup_job('aws_account_dns_cleanup.json', neo4j_session, common_job_parameters)
+
+    # MAP IAM permissions
+    permission_relationships.sync(neo4j_session, account_id, sync_tag, common_job_parameters)
+
+    # AWS Tags - Must always be last.
+    resourcegroupstaggingapi.sync(neo4j_session, boto3_session, regions, sync_tag, common_job_parameters)
+
+
+def _autodiscover_accounts(neo4j_session, boto3_session, account_id, sync_tag, common_job_parameters):
+    logger.info("Trying to autodiscover accounts.")
+    try:
+        # Fetch all accounts
+        client = boto3_session.client('organizations')
+        paginator = client.get_paginator('list_accounts')
+        accounts = []
+        for page in paginator.paginate():
+            accounts.extend(page['Accounts'])
+
+        # Filter out every account which is not in the ACTIVE status
+        # and select only the Id and Name fields
+        accounts = {x['Name']: x['Id'] for x in accounts if x['Status'] == 'ACTIVE'}
+
+        # Add them to the graph
+        logger.info("Loading autodiscovered accounts.")
+        organizations.load_aws_accounts(neo4j_session, accounts, sync_tag, common_job_parameters)
+    except botocore.exceptions.ClientError:
+        logger.debug(f"The current account ({account_id}) doesn't have enough permissions to perform autodiscovery.")
 
 
 def _sync_multiple_accounts(neo4j_session, accounts, sync_tag, common_job_parameters):
@@ -55,6 +93,8 @@ def _sync_multiple_accounts(neo4j_session, accounts, sync_tag, common_job_parame
         common_job_parameters["AWS_ID"] = account_id
         boto3_session = boto3.Session(profile_name=profile_name)
 
+        _autodiscover_accounts(neo4j_session, boto3_session, account_id, sync_tag, common_job_parameters)
+
         _sync_one_account(neo4j_session, boto3_session, account_id, sync_tag, common_job_parameters)
 
     del common_job_parameters["AWS_ID"]
@@ -62,14 +102,17 @@ def _sync_multiple_accounts(neo4j_session, accounts, sync_tag, common_job_parame
     # There may be orphan Principals which point outside of known AWS accounts. This job cleans
     # up those nodes after all AWS accounts have been synced.
     run_cleanup_job('aws_post_ingestion_principals_cleanup.json', neo4j_session, common_job_parameters)
+
     # There may be orphan DNS entries that point outside of known AWS zones. This job cleans
     # up those entries after all AWS accounts have been synced.
     run_cleanup_job('aws_post_ingestion_dns_cleanup.json', neo4j_session, common_job_parameters)
 
 
+@timeit
 def start_aws_ingestion(neo4j_session, config):
     common_job_parameters = {
         "UPDATE_TAG": config.update_tag,
+        "permission_relationships_file": config.permission_relationships_file,
     }
     try:
         boto3_session = boto3.Session()
@@ -114,6 +157,12 @@ def start_aws_ingestion(neo4j_session, config):
 
     run_analysis_job(
         'aws_ec2_keypair_analysis.json',
+        neo4j_session,
+        common_job_parameters,
+    )
+
+    run_analysis_job(
+        'aws_eks_asset_exposure.json',
         neo4j_session,
         common_job_parameters,
     )

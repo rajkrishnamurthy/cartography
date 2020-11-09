@@ -6,10 +6,12 @@ from string import Template
 from googleapiclient.discovery import HttpError
 
 from cartography.util import run_cleanup_job
+from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
 
 
+@timeit
 def get_gcp_organizations(crm_v1):
     """
     Return list of GCP organizations that the crm_v1 resource object has permissions to access.
@@ -27,6 +29,7 @@ def get_gcp_organizations(crm_v1):
         return []
 
 
+@timeit
 def get_gcp_folders(crm_v2):
     """
     Return list of GCP folders that the crm_v2 resource object has permissions to access.
@@ -44,6 +47,7 @@ def get_gcp_folders(crm_v2):
         return []
 
 
+@timeit
 def get_gcp_projects(crm_v1):
     """
     Return list of GCP projects that the crm_v1 resource object has permissions to access.
@@ -53,14 +57,20 @@ def get_gcp_projects(crm_v1):
     :return: List of GCP projects. See https://cloud.google.com/resource-manager/reference/rest/v2/projects/list.
     """
     try:
+        projects = []
         req = crm_v1.projects().list()
-        res = req.execute()
-        return res.get('projects', [])
+        while req is not None:
+            res = req.execute()
+            page = res.get('projects', [])
+            projects.extend(page)
+            req = crm_v1.projects().list_next(previous_request=req, previous_response=res)
+        return projects
     except HttpError as e:
         logger.warning("HttpError occurred in crm.get_gcp_projects(), returning empty list. Details: %r", e)
         return []
 
 
+@timeit
 def load_gcp_organizations(neo4j_session, data, gcp_update_tag):
     """
     Ingest the GCP organizations to Neo4j
@@ -87,6 +97,7 @@ def load_gcp_organizations(neo4j_session, data, gcp_update_tag):
         )
 
 
+@timeit
 def load_gcp_folders(neo4j_session, data, gcp_update_tag):
     """
     Ingest the GCP folders to Neo4j
@@ -128,6 +139,7 @@ def load_gcp_folders(neo4j_session, data, gcp_update_tag):
         )
 
 
+@timeit
 def load_gcp_projects(neo4j_session, data, gcp_update_tag):
     """
     Ingest the GCP projects to Neo4j
@@ -159,6 +171,7 @@ def load_gcp_projects(neo4j_session, data, gcp_update_tag):
             _attach_gcp_project_parent(neo4j_session, project, gcp_update_tag)
 
 
+@timeit
 def _attach_gcp_project_parent(neo4j_session, project, gcp_update_tag):
     """
     Attach a project to its respective parent, as in the Resource Hierarchy -
@@ -194,6 +207,7 @@ def _attach_gcp_project_parent(neo4j_session, project, gcp_update_tag):
     )
 
 
+@timeit
 def cleanup_gcp_organizations(neo4j_session, common_job_parameters):
     """
     Remove stale GCP organizations and their relationships
@@ -204,6 +218,7 @@ def cleanup_gcp_organizations(neo4j_session, common_job_parameters):
     run_cleanup_job('gcp_crm_organization_cleanup.json', neo4j_session, common_job_parameters)
 
 
+@timeit
 def cleanup_gcp_folders(neo4j_session, common_job_parameters):
     """
     Remove stale GCP folders and their relationships
@@ -214,6 +229,7 @@ def cleanup_gcp_folders(neo4j_session, common_job_parameters):
     run_cleanup_job('gcp_crm_folder_cleanup.json', neo4j_session, common_job_parameters)
 
 
+@timeit
 def cleanup_gcp_projects(neo4j_session, common_job_parameters):
     """
     Remove stale GCP projects and their relationships
@@ -224,6 +240,7 @@ def cleanup_gcp_projects(neo4j_session, common_job_parameters):
     run_cleanup_job('gcp_crm_project_cleanup.json', neo4j_session, common_job_parameters)
 
 
+@timeit
 def sync_gcp_organizations(neo4j_session, crm_v1, gcp_update_tag, common_job_parameters):
     """
     Get GCP organization data using the CRM v1 resource object, load the data to Neo4j, and clean up stale nodes.
@@ -240,6 +257,7 @@ def sync_gcp_organizations(neo4j_session, crm_v1, gcp_update_tag, common_job_par
     cleanup_gcp_organizations(neo4j_session, common_job_parameters)
 
 
+@timeit
 def sync_gcp_folders(neo4j_session, crm_v2, gcp_update_tag, common_job_parameters):
     """
     Get GCP folder data using the CRM v2 resource object, load the data to Neo4j, and clean up stale nodes.
@@ -256,6 +274,7 @@ def sync_gcp_folders(neo4j_session, crm_v2, gcp_update_tag, common_job_parameter
     cleanup_gcp_folders(neo4j_session, common_job_parameters)
 
 
+@timeit
 def sync_gcp_projects(neo4j_session, projects, gcp_update_tag, common_job_parameters):
     """
     Load a given list of GCP project data to Neo4j and clean up stale nodes.

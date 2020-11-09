@@ -12,8 +12,10 @@
   - [Relationships](#relationships-2)
 - [GitHubBranch](#githubbranch)
   - [Relationships](#relationships-3)
-- [GitHubBranch](#githubbranch-1)
+- [ProgrammingLanguage](#programminglanguage)
   - [Relationships](#relationships-4)
+- [Dependency::PythonLibrary](#dependencypythonlibrary)
+  - [Relationships](#relationships-5)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -54,6 +56,13 @@ Representation of a single GitHubRepository (repo) [repository object](https://d
     (GitHubOrganization)-[OWNER]->(GitHubRepository)
     ```
 
+- GitHubRepositories in an organization can have outside collaborators with different permissions, including ADMIN,
+WRITE, MAINTAIN, TRIAGE, and READ ([Reference](https://docs.github.com/en/graphql/reference/enums#repositorypermission)).
+
+    ```
+    (GitHubUser)-[:OUTSIDE_COLLAB_{ACTION}]->(GitHubRepository)
+    ```
+
 - GitHubRepositories use ProgrammingLanguages
     ```
    (GitHubRepository)-[:LANGUAGE]->(ProgrammingLanguage)
@@ -72,7 +81,7 @@ Representation of a single GitHubOrganization [organization object](https://deve
 |-------|--------------|
 | firstseen| Timestamp of when a sync job first created this node  |
 | lastupdated |  Timestamp of the last time the node was updated |
-| id | The GitHub organization id. These are not unique across GitHub instances, so are prepended with the API URL the id applies to |
+| id | The URL of the GitHub organization |
 | username | Name of the organization |
 
 
@@ -93,8 +102,16 @@ Representation of a single GitHubUser [user object](https://developer.github.com
 |-------|--------------|
 | firstseen| Timestamp of when a sync job first created this node  |
 | lastupdated |  Timestamp of the last time the node was updated |
-| id | The GitHub user id. These are not unique across GitHub instances, so are prepended with the API URL the id applies to |
+| id | The URL of the GitHub user |
 | username | Name of the user |
+| fullname | The full name |
+| has_2fa_enabled | Whether the user has 2-factor authentication enabled |
+| role | Either 'ADMIN' (denoting that the user is an owner of a Github organization) or 'MEMBER' |
+| is_site_admin | Whether the user is a site admin |
+| permission | Only present if the user is an [outside collaborator](https://docs.github.com/en/graphql/reference/objects#repositorycollaboratorconnection) of this repo.
+`permission` is either ADMIN, MAINTAIN, READ, TRIAGE, or WRITE ([ref](https://docs.github.com/en/graphql/reference/enums#repositorypermission)).
+| email | The user's publicly visible profile email.
+| company | The user's public profile company.
 
 
 ### Relationships
@@ -103,6 +120,13 @@ Representation of a single GitHubUser [user object](https://developer.github.com
 
     ```
     (GitHubUser)-[OWNER]->(GitHubRepository)
+    ```
+
+- GitHubRepositories in an organization can have outside collaborators with different permissions, including ADMIN,
+WRITE, MAINTAIN, TRIAGE, and READ ([Reference](https://docs.github.com/en/graphql/reference/enums#repositorypermission)).
+
+    ```
+    (GitHubUser)-[:OUTSIDE_COLLAB_{ACTION}]->(GitHubRepository)
     ```
 
 ## GitHubBranch
@@ -126,7 +150,7 @@ Representation of a single GitHubBranch [ref object](https://developer.github.co
     (GitHubBranch)<-[BRANCH]-(GitHubRepository)
     ```
 
-## GitHubBranch
+## ProgrammingLanguage
 
 Representation of a single Programming Language [language object](https://developer.github.com/v4/object/language). This node contains programming language information.
 
@@ -146,3 +170,23 @@ Representation of a single Programming Language [language object](https://develo
     ```
     (ProgrammingLanguage)<-[LANGUAGE]-(GitHubRepository)
     ```
+
+
+## Dependency::PythonLibrary
+
+Representation of a Python library as listed in a [requirements.txt](https://pip.pypa.io/en/stable/user_guide/#requirements-files) file.
+
+| Field | Description |
+|-------|-------------|
+|**id**|The [canonicalized](https://packaging.pypa.io/en/latest/utils/#packaging.utils.canonicalize_name) name of the library. If the library was pinned in a requirements file using the `==` operator, then `id` has the form `{canonical name}|{pinned_version}`.|
+|name|The [canonicalized](https://packaging.pypa.io/en/latest/utils/#packaging.utils.canonicalize_name) name of the library.|
+|version|The exact version of the library. This field is only present if the library was pinned in a requirements file using the `==` operator.|
+
+### Relationships
+
+- Software on Github repos can import Python libraries by optionally specifying a version number.
+
+    ```
+    (GitHubRepository)-[:REQUIRES{specifier}]->(PythonLibrary)
+    ```
+    - specifier: A string describing this library's version e.g. "<4.0,>=3.0" or "==1.0.2". This field is only present on the `:REQUIRES` edge if the repo's requirements file provided a version pin.

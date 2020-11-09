@@ -5,6 +5,7 @@ import os
 import sys
 
 import cartography.sync
+import cartography.util
 
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,67 @@ class CLI:
                 'Required if you are using the GitHub intel module. Ignored otherwise.'
             ),
         )
+        parser.add_argument(
+            '--permission-relationships-file',
+            type=str,
+            default="cartography/data/permission_relationships.yaml",
+            help=(
+                'The path to the permission relationships mapping file.'
+                'If omitted the default permission relationships will be created'
+            ),
+        )
+        parser.add_argument(
+            '--jamf-base-uri',
+            type=str,
+            default=None,
+            help=(
+                'Your Jamf base URI, e.g. https://hostname.com/JSSResource.'
+                'Required if you are using the Jamf intel module. Ignored otherwise.'
+            ),
+        )
+        parser.add_argument(
+            '--jamf-user',
+            type=str,
+            default=None,
+            help='A username with which to authenticate to Jamf.',
+        )
+        parser.add_argument(
+            '--jamf-password-env-var',
+            type=str,
+            default=None,
+            help='The name of an environment variable containing a password with which to authenticate to Jamf.',
+        )
+        parser.add_argument(
+            '--statsd-enabled',
+            action='store_true',
+            help=(
+                'If set, enables sending metrics using statsd to a server of your choice.'
+            ),
+        )
+        parser.add_argument(
+            '--statsd-prefix',
+            type=str,
+            default='',
+            help=(
+                'The string to prefix statsd metrics with. Only used if --statsd-enabled is on. Default = empty string.'
+            ),
+        )
+        parser.add_argument(
+            '--statsd-host',
+            type=str,
+            default='127.0.0.1',
+            help=(
+                'The IP address of your statsd server. Only used if --statsd-enabled is on. Default = 127.0.0.1.'
+            ),
+        )
+        parser.add_argument(
+            '--statsd-port',
+            type=int,
+            default=8125,
+            help=(
+                'The port of your statsd server. Only used if --statsd-enabled is on. Default = UDP 8125.'
+            ),
+        )
         return parser
 
     def main(self, argv):
@@ -219,10 +281,12 @@ class CLI:
         if config.okta_org_id and config.okta_api_key_env_var:
             logger.debug(f"Reading API key for Okta from environment variable {config.okta_api_key_env_var}")
             config.okta_api_key = os.environ.get(config.okta_api_key_env_var)
+        else:
+            config.okta_api_key = None
 
         # CRXcavator config
         if config.crxcavator_api_base_uri and config.crxcavator_api_key_env_var:
-            logger.debug("Reading API key for CRXcavator from environment variable '%s'.")
+            logger.debug(f"Reading API key for CRXcavator from env variable {config.crxcavator_api_key_env_var}.")
             config.crxcavator_api_key = os.environ.get(config.crxcavator_api_key_env_var)
         else:
             config.crxcavator_api_key = None
@@ -233,6 +297,31 @@ class CLI:
             config.github_config = os.environ.get(config.github_config_env_var)
         else:
             config.github_config = None
+
+        # Jamf config
+        if config.jamf_base_uri:
+            if config.jamf_user:
+                config.jamf_password = None
+                if config.jamf_password_env_var:
+                    logger.debug(
+                        "Reading password for Jamf user '%s' from environment variable '%s'.",
+                        config.jamf_user,
+                        config.jamf_password_env_var,
+                    )
+                    config.jamf_password = os.environ.get(config.jamf_password_env_var)
+            if not config.jamf_user:
+                logger.warning("A Jamf base URI was provided but a user was not.")
+            if not config.jamf_password:
+                logger.warning("A Jamf password could not be found.")
+        else:
+            config.jamf_user = None
+            config.jamf_password = None
+
+        if config.statsd_enabled:
+            logger.debug(
+                f'statsd enabled. Sending metrics to server {config.statsd_host}:{config.statsd_port}. '
+                f'Metrics have prefix "{config.statsd_prefix}".',
+            )
 
         # Run cartography
         try:

@@ -1,4 +1,5 @@
-# Cartography
+![Cartography](docs/images/logo-horizontal.png)
+
 Cartography is a Python tool that consolidates infrastructure assets and the relationships between them in an intuitive graph view powered by a [Neo4j](https://www.neo4j.com) database.
 
 ![Visualization of RDS nodes and AWS nodes](docs/images/accountsandrds.png)
@@ -17,6 +18,7 @@ Cartography is a Python tool that consolidates infrastructure assets and the rel
   - [Code of conduct](#code-of-conduct)
   - [Developing Cartography](#developing-cartography)
     - [Sign the Contributor License Agreement (CLA)](#sign-the-contributor-license-agreement-cla)
+- [Who uses Cartography?](#who-uses-cartography)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -33,8 +35,8 @@ You can learn more about the story behind Cartography in our [presentation at BS
 Start [here](docs/setup/install.md).
 
 ## Supported platforms
-- [Amazon Web Services](docs/setup/config/aws.md) -  EC2, Elasticsearch, DynamoDB, IAM,  RDS, Route53, S3, STS
-- [Google Cloud Platform](docs/setup/config/gcp.md) - Cloud Resource Manager, Compute, Storage
+- [Amazon Web Services](docs/setup/config/aws.md) -  EC2, Elasticsearch, Elastic Kubernetes Service, DynamoDB, IAM, Lambda, RDS, Redshift, Route53, S3, STS, Tags
+- [Google Cloud Platform](docs/setup/config/gcp.md) - Cloud Resource Manager, Compute, Storage, Google Kubernetes Engine
 - [Google GSuite](docs/setup/config/gsuite.md) - users, groups
 - [Duo CRXcavator](docs/setup/config/crxcavator.md) - Chrome extensions, GSuite users
 - [Okta](docs/setup/config/okta.md) - users, groups, organizations, roles, applications, factors, trusted origins, reply URIs
@@ -52,6 +54,7 @@ Start with our [tutorial](docs/usage/tutorial.md). Our [data schema](docs/schema
 Talk to us and see what we're working on at our [monthly community meeting](https://calendar.google.com/calendar/embed?src=lyft.com_p10o6ceuiieq9sqcn1ef61v1io%40group.calendar.google.com&ctz=America%2FLos_Angeles).
 - Meeting minutes are [here](https://docs.google.com/document/d/1VyRKmB0dpX185I15BmNJZpfAJ_Ooobwz0U1WIhjDxvw).
 - Recorded videos are posted [here](https://www.youtube.com/playlist?list=PLMga2YJvAGzidUWJB_fnG7EHI4wsDDsE1).
+- Our current project road map is [here](https://docs.google.com/document/d/18MOsGI-isFvag1fGk718Aht7wQPueWd4SqOI9KapBa8/edit#heading=h.15nsmgmjaaml).
 
 ## Contributing
 Thank you for considering contributing to Cartography!
@@ -70,3 +73,11 @@ Get started with our [developer documentation](docs/dev/developer-guide.md).
 We require a CLA for code contributions, so before we can accept a pull request
 we need to have a signed CLA. Please [visit our CLA service](https://oss.lyft.com/cla)
 and follow the instructions to sign the CLA.
+
+## Who uses Cartography?
+
+1. [Lyft](https://www.lyft.com)
+1. [Thought Machine](https://thoughtmachine.net/)
+1. {Your company here} :-)
+
+If your organization uses Cartography, please file a PR and update this list. Say hi on Slack too!
