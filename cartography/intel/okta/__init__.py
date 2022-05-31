@@ -1,7 +1,10 @@
 import logging
+from typing import Dict
 
+import neo4j
 from okta.framework.OktaError import OktaError
 
+from cartography.config import Config
 from cartography.intel.okta import applications
 from cartography.intel.okta import awssaml
 from cartography.intel.okta import factors
@@ -11,26 +14,33 @@ from cartography.intel.okta import origins
 from cartography.intel.okta import roles
 from cartography.intel.okta import users
 from cartography.intel.okta.sync_state import OktaSyncState
+from cartography.stats import get_stats_client
+from cartography.util import merge_module_sync_metadata
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
+stat_handler = get_stats_client(__name__)
 
 
 @timeit
-def _cleanup_okta_organizations(session, common_job_parameters):
+def _cleanup_okta_organizations(neo4j_session: neo4j.Session, common_job_parameters: Dict) -> None:
     """
     Remove stale Okta organization
-    :param session: The Neo4j session
+    :param neo4j_session: The Neo4j session
     :param common_job_parameters: Parameters to carry to the cleanup job
     :return: Nothing
     """
+    run_cleanup_job('okta_import_cleanup.json', neo4j_session, common_job_parameters)
+    cleanup_okta_groups(neo4j_session, common_job_parameters)
 
-    run_cleanup_job('okta_import_cleanup.json', session, common_job_parameters)
+
+def cleanup_okta_groups(neo4j_session: neo4j.Session, common_job_parameters: Dict) -> None:
+    run_cleanup_job('okta_groups_cleanup.json', neo4j_session, common_job_parameters)
 
 
 @timeit
-def start_okta_ingestion(neo4j_session, config):
+def start_okta_ingestion(neo4j_session: neo4j.Session, config: Config) -> None:
     """
     Starts the OKTA ingestion process
     :param neo4j_session: The Neo4j session
@@ -74,3 +84,12 @@ def start_okta_ingestion(neo4j_session, config):
             logger.warning("Unable to sync admin roles - api token needs admin rights to pull admin roles data")
 
     _cleanup_okta_organizations(neo4j_session, common_job_parameters)
+
+    merge_module_sync_metadata(
+        neo4j_session,
+        group_type='OktaOrganization',
+        group_id=config.okta_org_id,
+        synced_type='OktaOrganization',
+        update_tag=config.update_tag,
+        stat_handler=stat_handler,
+    )

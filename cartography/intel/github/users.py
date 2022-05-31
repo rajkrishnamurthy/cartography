@@ -1,10 +1,18 @@
 import logging
+from typing import Dict
+from typing import List
+from typing import Tuple
+
+import neo4j
 
 from cartography.intel.github.util import fetch_all
+from cartography.stats import get_stats_client
+from cartography.util import merge_module_sync_metadata
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
+stat_handler = get_stats_client(__name__)
 
 
 GITHUB_ORG_USERS_PAGINATED_GRAPHQL = """
@@ -37,7 +45,7 @@ GITHUB_ORG_USERS_PAGINATED_GRAPHQL = """
 
 
 @timeit
-def get(token, api_url, organization):
+def get(token: str, api_url: str, organization: str) -> Tuple[List[Dict], Dict]:
     """
     Retrieve a list of users from the given GitHub organization as described in
     https://docs.github.com/en/graphql/reference/objects#organizationmemberedge.
@@ -52,7 +60,10 @@ def get(token, api_url, organization):
 
 
 @timeit
-def load_organization_users(neo4j_session, user_data, org_data, update_tag):
+def load_organization_users(
+    neo4j_session: neo4j.Session, user_data: List[Dict], org_data: Dict,
+    update_tag: int,
+) -> None:
     query = """
     MERGE (org:GitHubOrganization{id: {OrgUrl}})
     ON CREATE SET org.firstseen = timestamp()
@@ -87,8 +98,19 @@ def load_organization_users(neo4j_session, user_data, org_data, update_tag):
 
 
 @timeit
-def sync(neo4j_session, common_job_parameters, github_api_key, github_url, organization):
+def sync(
+    neo4j_session: neo4j.Session, common_job_parameters: Dict, github_api_key: str, github_url: str,
+    organization: str,
+) -> None:
     logger.info("Syncing GitHub users")
     user_data, org_data = get(github_api_key, github_url, organization)
     load_organization_users(neo4j_session, user_data, org_data, common_job_parameters['UPDATE_TAG'])
     run_cleanup_job('github_users_cleanup.json', neo4j_session, common_job_parameters)
+    merge_module_sync_metadata(
+        neo4j_session,
+        group_type='GitHubOrganization',
+        group_id=org_data['url'],
+        synced_type='GitHubOrganization',
+        update_tag=common_job_parameters['UPDATE_TAG'],
+        stat_handler=stat_handler,
+    )

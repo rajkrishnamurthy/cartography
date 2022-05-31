@@ -1,11 +1,17 @@
 # Okta intel module - Group
 import json
 import logging
+from typing import Dict
+from typing import List
+from typing import Tuple
 
+import neo4j
+from okta.framework.ApiClient import ApiClient
 from okta.framework.OktaError import OktaError
 from okta.framework.PagedResults import PagedResults
 from okta.models.usergroup import UserGroup
 
+from cartography.intel.okta.sync_state import OktaSyncState
 from cartography.intel.okta.utils import create_api_client
 from cartography.intel.okta.utils import is_last_page
 from cartography.util import timeit
@@ -14,13 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 @timeit
-def _get_okta_groups(api_client):
+def _get_okta_groups(api_client: ApiClient) -> List[str]:
     """
     Get groups from Okta server
     :param api_client: Okta api client
     :return: Array of group information
     """
-    group_list = []
+    group_list: List[str] = []
     next_url = None
 
     # SDK Bug
@@ -49,14 +55,14 @@ def _get_okta_groups(api_client):
 
 
 @timeit
-def _get_okta_group_members(api_client, group_id):
+def get_okta_group_members(api_client: ApiClient, group_id: str) -> List[Dict]:
     """
     Get group members from Okta server
     :param api_client: Okta api client
     :param group_id: group to fetch members from
     :return: Array or group membership information
     """
-    member_list = []
+    member_list: List[Dict] = []
     next_url = None
 
     while True:
@@ -69,11 +75,11 @@ def _get_okta_group_members(api_client, group_id):
                     'limit': 1000,
                 }
                 paged_response = api_client.get_path(f'/{group_id}/users', params)
-        except OktaError as okta_error:
-            logger.debug(f"Got error while going through list group member {okta_error}")
-            break
+        except OktaError:
+            logger.error(f"OktaError while listing members of group {group_id}")
+            raise
 
-        member_list.append(paged_response.text)
+        member_list.extend(json.loads(paged_response.text))
 
         if not is_last_page(paged_response):
             next_url = paged_response.links.get("next").get("url")
@@ -84,9 +90,9 @@ def _get_okta_group_members(api_client, group_id):
 
 
 @timeit
-def transform_okta_group_list(okta_group_list):
-    groups = []
-    groups_id = []
+def transform_okta_group_list(okta_group_list: List[UserGroup]) -> Tuple[List[Dict], List[str]]:
+    groups: List[Dict] = []
+    groups_id: List[str] = []
 
     for current in okta_group_list:
         groups.append(transform_okta_group(current))
@@ -95,8 +101,7 @@ def transform_okta_group_list(okta_group_list):
     return groups, groups_id
 
 
-@timeit
-def transform_okta_group(okta_group):
+def transform_okta_group(okta_group: UserGroup) -> Dict:
     """
     Transform okta group object to consumable dictionary for graph
     :param okta_group: okta group object
@@ -130,34 +135,35 @@ def transform_okta_group(okta_group):
     return group_props
 
 
-@timeit
-def transform_okta_group_member_list(okta_member_list):
-    member_list = []
-
-    for current in okta_member_list:
-        member_list.extend(transform_okta_group_member(current))
-
-    return member_list
-
-
-@timeit
-def transform_okta_group_member(raw_json_response):
+def transform_okta_group_member_list(okta_member_list: List[Dict]) -> List[Dict]:
     """
-    Transform group member object to graph consumable data
-    :param raw_json_response: okta server response from list group members
-    :return: array of member id
+    Only include fields that we care about in the Okta object sent to Neo4j to avoid network issues.
     """
-    member_list = []
-    member_results = json.loads(raw_json_response)
-
-    for member in member_results:
-        member_list.append(member["id"])
-
-    return member_list
+    transformed_member_list: List[Dict] = []
+    for user in okta_member_list:
+        transformed_member_list.append({
+            'first_name': user['profile']['firstName'],
+            'last_name': user['profile']['lastName'],
+            'login': user['profile']['login'],
+            'email': user['profile']['email'],
+            'second_email': user['profile'].get('secondEmail'),
+            'id': user['id'],
+            'created': user['created'],
+            'activated': user.get('activated'),
+            'status_changed': user.get('status_changed'),
+            'last_login': user.get('last_login'),
+            'okta_last_updated': user.get('okta_last_updated'),
+            'password_changed': user.get('password_changed'),
+            'transition_to_status': user.get('transitioningToStatus'),
+        })
+    return transformed_member_list
 
 
 @timeit
-def _load_okta_groups(neo4j_session, okta_org_id, group_list, okta_update_tag):
+def _load_okta_groups(
+    neo4j_session: neo4j.Session, okta_org_id: str, group_list: List[Dict],
+    okta_update_tag: int,
+) -> None:
     """
     Add okta groups to the graph
     :param neo4j_session: session with the Neo4j server
@@ -194,7 +200,10 @@ def _load_okta_groups(neo4j_session, okta_org_id, group_list, okta_update_tag):
 
 
 @timeit
-def _load_okta_group_members(neo4j_session, group_id, member_list, okta_update_tag):
+def load_okta_group_members(
+    neo4j_session: neo4j.Session, group_id: str, member_list: List[Dict],
+    okta_update_tag: int,
+) -> None:
     """
     Add group membership data into the graph
     :param neo4j_session: session with the Neo4j server
@@ -206,14 +215,27 @@ def _load_okta_group_members(neo4j_session, group_id, member_list, okta_update_t
     ingest = """
     MATCH (group:OktaGroup{id: {GROUP_ID}})
     WITH group
-    UNWIND {MEMBER_LIST} as member_id
-    MATCH (user:OktaUser{id: member_id})
-    WITH group, user
-    MERGE (user)-[r:MEMBER_OF_OKTA_GROUP]->(group)
-    ON CREATE SET r.firstseen = timestamp()
-    SET r.lastupdated = {okta_update_tag}
+    UNWIND {MEMBER_LIST} as member
+        MERGE (user:OktaUser{id: member.id})
+        ON CREATE SET user.firstseen = timestamp(),
+            user.first_name = member.first_name,
+            user.last_name = member.last_name,
+            user.login = member.login,
+            user.email = member.email,
+            user.second_email = member.second_email,
+            user.created = member.created,
+            user.activated = member.activated,
+            user.status_changed = member.status_changed,
+            user.last_login = member.last_login,
+            user.okta_last_updated = member.okta_last_updated,
+            user.password_changed = member.password_changed,
+            user.transition_to_status = member.transition_to_status,
+            user.lastupdated = {okta_update_tag}
+        MERGE (user)-[r:MEMBER_OF_OKTA_GROUP]->(group)
+        ON CREATE SET r.firstseen = timestamp()
+        SET r.lastupdated = {okta_update_tag}
     """
-
+    logging.info(f'Loading {len(member_list)} members of group {group_id}')
     neo4j_session.run(
         ingest,
         GROUP_ID=group_id,
@@ -223,7 +245,10 @@ def _load_okta_group_members(neo4j_session, group_id, member_list, okta_update_t
 
 
 @timeit
-def _sync_okta_group_membership(neo4j_session, api_client, group_list_info, okta_update_tag):
+def sync_okta_group_membership(
+    neo4j_session: neo4j.Session, api_client: ApiClient, group_list_info: List[Dict],
+    okta_update_tag: int,
+) -> None:
     """
     Map group members in the graph
     :param neo4j_session: session with the Neo4j server
@@ -235,13 +260,16 @@ def _sync_okta_group_membership(neo4j_session, api_client, group_list_info, okta
 
     for group_info in group_list_info:
         group_id = group_info["id"]
-        members_data = _get_okta_group_members(api_client, group_id)
-        members = transform_okta_group_member_list(members_data)
-        _load_okta_group_members(neo4j_session, group_id, members, okta_update_tag)
+        members_data: List[Dict] = get_okta_group_members(api_client, group_id)
+        transformed_member_data: List[Dict] = transform_okta_group_member_list(members_data)
+        load_okta_group_members(neo4j_session, group_id, transformed_member_data, okta_update_tag)
 
 
 @timeit
-def sync_okta_groups(neo4_session, okta_org_id, okta_update_tag, okta_api_key, sync_state):
+def sync_okta_groups(
+    neo4_session: neo4j.Session, okta_org_id: str, okta_update_tag: int, okta_api_key: str,
+    sync_state: OktaSyncState,
+) -> None:
     """
     Synchronize okta groups
     :param neo4_session: session with the Neo4j server
@@ -251,7 +279,7 @@ def sync_okta_groups(neo4_session, okta_org_id, okta_update_tag, okta_api_key, s
     :param sync_state: Okta sync state
     :return: Nothing
     """
-    logger.debug("Syncing Okta groups")
+    logger.info("Syncing Okta groups")
     api_client = create_api_client(okta_org_id, "/api/v1/groups", okta_api_key)
 
     okta_group_data = _get_okta_groups(api_client)
@@ -262,4 +290,4 @@ def sync_okta_groups(neo4_session, okta_org_id, okta_update_tag, okta_api_key, s
 
     _load_okta_groups(neo4_session, okta_org_id, group_list_info, okta_update_tag)
 
-    _sync_okta_group_membership(neo4_session, api_client, group_list_info, okta_update_tag)
+    sync_okta_group_membership(neo4_session, api_client, group_list_info, okta_update_tag)

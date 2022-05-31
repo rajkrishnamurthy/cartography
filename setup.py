@@ -1,7 +1,7 @@
 from setuptools import find_packages
 from setuptools import setup
 
-__version__ = '0.28.0'
+__version__ = '0.59.0'
 
 
 setup(
@@ -14,6 +14,7 @@ setup(
     license='apache2',
     packages=find_packages(exclude=['tests*']),
     package_data={
+        'cartography': ['py.typed'],
         'cartography.data': [
             '*.cypher',
             '*.yaml',
@@ -41,6 +42,20 @@ setup(
         "requests>=2.22.0",
         "statsd",
         "packaging",
+        "cryptography<3.4,>=3.2",
+        "python-digitalocean>=1.16.0",
+        "adal>=1.2.4",
+        "azure-cli-core>=2.26.0",
+        "azure-mgmt-compute>=5.0.0",
+        "azure-mgmt-resource>=10.2.0",
+        "azure-mgmt-cosmosdb>=6.0.0",
+        "msrestazure >= 0.6.4",
+        "azure-mgmt-storage>=16.0.0",
+        "azure-mgmt-sql<=1.0.0",
+        "azure-identity>=1.5.0",
+        "kubernetes>=18.20.0,<=21.7.0",
+        "pdpyras>=4.3.0",
+        "crowdstrike-falconpy>=0.5.1",
     ],
     extras_require={
         ':python_version<"3.7"': [
@@ -61,6 +76,7 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.8',
         'Topic :: Security',
         'Topic :: Software Development :: Libraries',
         'Topic :: Software Development :: Libraries :: Python Modules',
