@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 from typing import Dict
 from typing import List
 from typing import Tuple
@@ -55,8 +56,14 @@ def get(token: str, api_url: str, organization: str) -> Tuple[List[Dict], Dict]:
     :return: A 2-tuple containing 1. a list of dicts representing users - see tests.data.github.users.GITHUB_USER_DATA
     for shape, and 2. data on the owning GitHub organization - see tests.data.github.users.GITHUB_ORG_DATA for shape.
     """
-    users, org = fetch_all(token, api_url, organization, GITHUB_ORG_USERS_PAGINATED_GRAPHQL, 'membersWithRole', 'edges')
-    return users, org
+    users, org = fetch_all(
+        token,
+        api_url,
+        organization,
+        GITHUB_ORG_USERS_PAGINATED_GRAPHQL,
+        'membersWithRole',
+    )
+    return users.edges, org
 
 
 @timeit
@@ -65,13 +72,13 @@ def load_organization_users(
     update_tag: int,
 ) -> None:
     query = """
-    MERGE (org:GitHubOrganization{id: {OrgUrl}})
+    MERGE (org:GitHubOrganization{id: $OrgUrl})
     ON CREATE SET org.firstseen = timestamp()
-    SET org.username = {OrgLogin},
-    org.lastupdated = {UpdateTag}
+    SET org.username = $OrgLogin,
+    org.lastupdated = $UpdateTag
     WITH org
 
-    UNWIND {UserData} as user
+    UNWIND $UserData as user
 
     MERGE (u:GitHubUser{id: user.node.url})
     ON CREATE SET u.firstseen = timestamp()
@@ -82,11 +89,11 @@ def load_organization_users(
     u.is_site_admin = user.node.isSiteAdmin,
     u.email = user.node.email,
     u.company = user.node.company,
-    u.lastupdated = {UpdateTag}
+    u.lastupdated = $UpdateTag
 
     MERGE (u)-[r:MEMBER_OF]->(org)
     ON CREATE SET r.firstseen = timestamp()
-    SET r.lastupdated = {UpdateTag}
+    SET r.lastupdated = $UpdateTag
     """
     neo4j_session.run(
         query,
@@ -99,8 +106,11 @@ def load_organization_users(
 
 @timeit
 def sync(
-    neo4j_session: neo4j.Session, common_job_parameters: Dict, github_api_key: str, github_url: str,
-    organization: str,
+        neo4j_session: neo4j.Session,
+        common_job_parameters: Dict[str, Any],
+        github_api_key: str,
+        github_url: str,
+        organization: str,
 ) -> None:
     logger.info("Syncing GitHub users")
     user_data, org_data = get(github_api_key, github_url, organization)

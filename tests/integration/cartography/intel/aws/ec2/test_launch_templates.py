@@ -11,9 +11,9 @@ def test_load_launch_templates(neo4j_session, *args):
     # an AWSAccount must exist
     neo4j_session.run(
         """
-        MERGE (aws:AWSAccount{id: {aws_account_id}})
+        MERGE (aws:AWSAccount{id: $aws_account_id})
         ON CREATE SET aws.firstseen = timestamp()
-        SET aws.lastupdated = {aws_update_tag}
+        SET aws.lastupdated = $aws_update_tag
         """,
         aws_account_id=TEST_ACCOUNT_ID,
         aws_update_tag=TEST_UPDATE_TAG,
@@ -31,7 +31,7 @@ def test_load_launch_templates(neo4j_session, *args):
         (
             "lt-00000000000000000",
             "eks-00000000-0000-0000-0000-000000000000",
-            "1634020072.0",
+            "1634020072",
             1,
         ),
     }
@@ -58,7 +58,7 @@ def test_load_launch_templates(neo4j_session, *args):
             "lt-00000000000000000-1",
             "eks-00000000-0000-0000-0000-000000000000",
             1,
-            "1634020072.0",
+            "1634020072",
             "ami-00000000000000000",
         ),
     }

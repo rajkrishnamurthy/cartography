@@ -10,6 +10,8 @@ Representation of an AWS Account.
 |-------|-------------|
 |firstseen| Timestamp of when a sync job discovered this node|
 |name| The name of the account|
+|inscope| Indicates that the account is part of the sync scope (true or false).
+|foreign| Indicates if the account is not part of the sync scope (true or false). One such example is an account that is trusted as part of cross-account AWSRole trust not in scope for sync.
 |lastupdated| Timestamp of the last time the node was updated|
 |**id**| The AWS Account ID number|
 
@@ -19,6 +21,8 @@ Representation of an AWS Account.
         ```
         (AWSAccount)-[RESOURCE]->(AWSDNSZone,
                               AWSGroup,
+                              AWSInspectorFinding,
+                              AWSInspectorPackage,
                               AWSLambda,
                               AWSPrincipal,
                               AWSUser,
@@ -41,6 +45,7 @@ Representation of an AWS Account.
                               LoadBalancer,
                               RDSCluster,
                               RDSInstance,
+                              RDSSnapshot,
                               SecretsManagerSecret,
                               SecurityHub,
                               SQSQueue
@@ -132,6 +137,102 @@ Representation of AWS [IAM Groups](https://docs.aws.amazon.com/IAM/latest/APIRef
 
         ```
         (AWSAccount)-[RESOURCE]->(AWSGroup)
+        ```
+
+### AWSInspectorFinding
+
+Representation of an AWS [Inspector Finding](https://docs.aws.amazon.com/inspector/v2/APIReference/API_Finding.html)
+
+| Field | Description | Required|
+|-------|-------------|------|---|
+|arn|The AWS ARN|yes
+|id|Reuses the AWS ARN since it's unique|yes
+|region|AWS region the finding is from|yes
+|awsaccount|AWS account the finding is from|yes
+|name|The finding name|
+|instanceid|The instance ID of the EC2 instance with the issue|
+|ecrimageid|The image ID of the ECR image with the issue|
+|ecrrepositoryid|The repository ID of the ECR repository with the issue|
+|severity|The finding severity|
+|firstobservedat|Date the finding was first identified|
+|updatedat|Date the finding was last updated|
+|description|The finding description|
+|type|The finding type|
+|cvssscore|CVSS score of the finding|
+|protocol|Network protocol for network findings|
+|portrange|Port range affected for network findings|
+|portrangebegin|Beginning of the port range affected for network findings|
+|portrangeend|End of the port range affected for network findings|
+|vulnerabilityid|Vulnerability ID associdated with the finding for package findings|
+|referenceurls|Reference URLs for the found vulnerabilities|
+|relatedvulnerabilities|A list of any related vulnerabilities|
+|source|Source for the vulnerability|
+|sourceurl|URL for the vulnerability source|
+|vendorcreatedat|Date the vulnerability notice was created by the vendor|
+|vendorseverity|Vendor chosen issue severity|
+|vendorupdatedat|Date the vendor information was last updated|
+|vulnerablepackageids|IDs for any related packages|
+
+#### Relationships
+
+- AWSInspectorFinding may affect EC2 Instances
+
+    ```
+    (AWSInspectorFinding)-[:AFFECTS]->(EC2Instance)
+    ```
+
+- AWSInspectorFinding may affect ECR Repositories
+
+    ```
+    (AWSInspectorFinding)-[:AFFECTS]->(ECRRepository)
+    ```
+
+- AWSInspectorFinding may affect ECR Images
+
+    ```
+    (AWSInspectorFinding)-[:AFFECTS]->(ECRImage)
+    ```
+
+- AWSInspectorFindings belong to AWSAccounts.
+
+        ```
+        (AWSAccount)-[RESOURCE]->(AWSInspectorFinding)
+        ```
+
+### AWSInspectorPackage
+
+Representation of an AWS [Inspector Finding Package](https://docs.aws.amazon.com/inspector/v2/APIReference/API_Finding.html)
+
+| Field | Description | Required|
+|-------|-------------|------|---|
+|**arn**|The AWS ARN|yes
+|id|Uses the format of `name|arch|version|release|epoch` to uniqulely identify packages|yes
+|region|AWS region the finding is from|yes
+|awsaccount|AWS account the finding is from|yes
+|findingarn|The AWS ARN for a related finding|yes
+|name|The finding name|
+|arch|Architecture for the package|
+|version|Version of the package|
+|release|Release of the package
+|epoch|Package epoch|
+|manager|Related package manager|
+|filepath|Path to the file or package|
+|fixedinversion|Version the related finding was fixed in|
+|sourcelayerhash|Source layer hash for container images|
+
+
+#### Relationships
+
+- AWSInspectorFindings have AWSInspectorPackages.
+
+        ```
+        (AWSInspectorFindings)-[HAS]->(AWSInspectorPackages)
+        ```
+
+- AWSInspectorPackages belong to AWSAccounts.
+
+        ```
+        (AWSAccount)-[RESOURCE]->(AWSInspectorPackages)
         ```
 
 ### AWSLambda
@@ -590,6 +691,9 @@ Representation of an AWS [Access Key](https://docs.aws.amazon.com/IAM/latest/API
 | lastupdated |  Timestamp of the last time the node was updated
 | createdate | Date when access key was created |
 | status | Active: valid for API calls.  Inactive: not valid for API calls|
+| lastuseddate | Date when the key was last used |
+| lastusedservice | The service that was last used with the access key |
+| lastusedregion | The region where the access key was last used |
 | **accesskeyid** | The ID for this access key|
 
 #### Relationships
@@ -688,7 +792,7 @@ Representation of an AWS DNS [ResourceRecordSet](https://docs.aws.amazon.com/Rou
 |lastupdated| Timestamp of the last time the node was updated|
 |**id**| The zoneid for the record, the value of the record, and the type concatenated together|
 |type| The record type of the DNS record|
-|value| The IP address that the DNSRecord points to|
+|value| If it is an A, ALIAS, or CNAME record, this is the IP address that the DNSRecord points to. If it is an NS record, the `name` is used here.|
 
 #### Relationships
 - DNSRecords/AWSDNSRecords can point to each other.
@@ -1113,6 +1217,10 @@ Representation of an AWS EC2 [Subnet](https://docs.aws.amazon.com/AWSEC2/latest/
         ```
         (AWSAccount)-[RESOURCE]->(EC2Subnet)
         ```
+
+-  EC2PrivateIps are connected with NetworkInterfaces.
+
+        (NetworkInterface)-[PRIVATE_IP_ADDRESS]->(EC2PrivateIp)
 
 
 ### AWSInternetGateway
@@ -1573,7 +1681,7 @@ Represents an AWS Elastic Load Balancer.  See [spec for details](https://docs.aw
 
 ### LoadBalancerV2
 
-Represents an Elastic Load Balancer V2 ([Application Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html) or [Network Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html).)
+Represents an Elastic Load Balancer V2 ([Application Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html) or [Network Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html).) API reference [here](https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_LoadBalancer.html).
 
 | Field | Description |
 |-------|-------------|
@@ -1598,8 +1706,9 @@ Represents an Elastic Load Balancer V2 ([Application Load Balancer](https://docs
         ```
         (LoadBalancerV2)-[EXPOSE]->(EC2Instance)
         ```
+`EXPOSE` relationshiohip also holds the protocol, port and TargetGroupArn the load balancer points to.
 
-- LoadBalancerV2's can be part of EC2SecurityGroups.
+- LoadBalancerV2's can be part of EC2SecurityGroups but only if their `type` = "application". NLBs don't have SGs.
 
         ```
         (LoadBalancerV2)-[MEMBER_OF_EC2_SECURITY_GROUP]->(EC2SecurityGroup)
@@ -1923,6 +2032,71 @@ Representation of an AWS Relational Database Service [DBInstance](https://docs.a
         (RDSInstance)-[TAGGED]->(AWSTag)
         ```
 
+### RDSSnapshot
+
+Representation of an AWS Relational Database Service [DBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DBSnapshot.html).
+
+| Field | Description |
+|-------|-------------|
+| firstseen| Timestamp of when a sync job first discovered this node  |
+| lastupdated |  Timestamp of the last time the node was updated |
+| **id** | Same as ARN |
+| **arn** | The Amazon Resource Name (ARN) for the DB snapshot. |
+| **db\_snapshot\_identifier** | Specifies the identifier for the DB snapshot. |
+| db\_instance\_identifier | Specifies the DB instance identifier of the DB instance this DB snapshot was created from. |
+| snapshot\_create\_time | Specifies when the snapshot was taken in Coordinated Universal Time (UTC). Changes for the copy when the snapshot is copied. |
+| engine | Specifies the name of the database engine. |
+| allocated\_storage | Specifies the allocated storage size in gibibytes (GiB). |
+| status | Specifies the status of this DB snapshot. |
+| port | Specifies the port that the database engine was listening on at the time of the snapshot. |
+| availability\_zone | Specifies the name of the Availability Zone the DB instance was located in at the time of the DB snapshot. |
+| vpc\_id | Provides the VPC ID associated with the DB snapshot. |
+| instance\_create\_time | Specifies the time in Coordinated Universal Time (UTC) when the DB instance, from which the snapshot was taken, was created. |
+| master\_username | Provides the master username for the DB snapshot. |
+| engine\_version | Specifies the version of the database engine. |
+| license\_model | License model information for the restored DB instance. |
+| snapshot\_type | Provides the type of the DB snapshot. |
+| iops | Specifies the Provisioned IOPS (I/O operations per second) value of the DB instance at the time of the snapshot. |
+| option\_group\_name | Provides the option group name for the DB snapshot. |
+| percent\_progress | The percentage of the estimated data that has been transferred. |
+| source\_region | The AWS Region that the DB snapshot was created in or copied from. |
+| source\_db\_snapshot\_identifier | The DB snapshot Amazon Resource Name (ARN) that the DB snapshot was copied from. It only has a value in the case of a cross-account or cross-Region copy. |
+| storage\_type | Specifies the storage type associated with DB snapshot. |
+| tde\_credential\_arn | The ARN from the key store with which to associate the instance for TDE encryption. |
+| encrypted | Specifies whether the DB snapshot is encrypted. |
+| kms\_key\_id | If Encrypted is true, the AWS KMS key identifier for the encrypted DB snapshot. The AWS KMS key identifier is the key ARN, key ID, alias ARN, or alias name for the KMS key. |
+| timezone | The time zone of the DB snapshot. In most cases, the Timezone element is empty. Timezone content appears only for snapshots taken from Microsoft SQL Server DB instances that were created with a time zone specified. |
+| iam\_database\_authentication\_enabled | True if mapping of AWS Identity and Access Management (IAM) accounts to database accounts is enabled, and otherwise false. |
+| processor\_features | The number of CPU cores and the number of threads per core for the DB instance class of the DB instance when the DB snapshot was created. |
+| dbi\_resource\_id | The identifier for the source DB instance, which can't be changed and which is unique to an AWS Region. |
+| original\_snapshot\_create\_time | Specifies the time of the CreateDBSnapshot operation in Coordinated Universal Time (UTC). Doesn't change when the snapshot is copied. |
+| snapshot\_database\_time | The timestamp of the most recent transaction applied to the database that you're backing up. Thus, if you restore a snapshot, SnapshotDatabaseTime is the most recent transaction in the restored DB instance. In contrast, originalSnapshotCreateTime specifies the system time that the snapshot completed. If you back up a read replica, you can determine the replica lag by comparing SnapshotDatabaseTime with originalSnapshotCreateTime. For example, if originalSnapshotCreateTime is two hours later than SnapshotDatabaseTime, then the replica lag is two hours. |
+| snapshot\_target | Specifies where manual snapshots are stored: AWS Outposts or the AWS Region. |
+| storage\_throughput |  |
+| region | The AWS region of the snapshot |
+
+
+
+#### Relationships
+
+- RDS Snapshots are part of AWS Accounts.
+
+        ```
+        (AWSAccount)-[RESOURCE]->(RDSSnapshot)
+        ```
+
+- RDS Snapshots are connected to DB Instances.
+
+    ```
+    (RDSSnapshot)-[:IS_SNAPSHOT_SOURCE]->(RDSInstance)
+    ```
+
+-  RDS Snapshots can be tagged with AWSTags.
+
+        ```
+        (RDSSnapshot)-[TAGGED]->(AWSTag)
+        ```
+
 ### S3Acl
 
 Representation of an AWS S3 [Access Control List](https://docs.aws.amazon.com/AmazonS3/latest/API/API_control_S3AccessControlList.html).
@@ -1992,6 +2166,32 @@ Representation of an AWS S3 [Bucket](https://docs.aws.amazon.com/AmazonS3/latest
         ```
         (S3Bucket)-[TAGGED]->(AWSTag)
         ```
+
+### S3PolicyStatement
+
+Representation of an AWS S3 [Bucket Policy Statements](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-policies.html) for controlling ownership of objects and ACLs of the bucket.
+
+| Field | Description |
+|-------|-------------|
+| firstseen| Timestamp of when a sync job first discovered this node  |
+| lastupdated |  Timestamp of the last time the node was updated |
+| policy_id | Optional string "Id" for the bucket's policy |
+| policy_version| Version of the bucket's policy |
+| **id** | The unique identifier for a bucket policy statement. <br>If the statement has an Sid the id will be calculated as _S3Bucket.id_/policy_statement/_index of statement in statement_/_Sid_. <br>If the statement has no Sid the id will be calculated as  _S3Bucket.id_/policy_statement/_index of statement in statement_/  |
+| effect | Specifies "Deny" or "Allow" for the policy statement |
+| action | Specifies permissions that policy statement applies to, as defined [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-actions.html) |
+| resource | Specifies the resource the bucket policy statement is based on |
+| condition | Specifies conditions where permissions are granted: [examples](https://docs.aws.amazon.com/AmazonS3/latest/userguide/amazon-s3-policy-keys.html) |
+| sid | Optional string to label the specific bucket policy statement |
+
+#### Relationships
+
+- S3PolicyStatements define the policy for S3 Buckets.
+
+        ```
+        (:S3Bucket)-[:POLICY_STATEMENT]->(:S3PolicyStatement)
+        ```
+
 
 ### KMSKey
 
@@ -2867,6 +3067,12 @@ Representation of an AWS ECS [Task Definition](https://docs.aws.amazon.com/Amazo
         (AWSAccount)-[RESOURCE]->(ECSTaskDefinition)
         ```
 
+- An ECSTask has an ECSTaskDefinition.
+
+        ```
+        (ECSTask)-[HAS_TASK_DEFINITION]->(ECSTaskDefinition)
+        ```
+
 ### ECSContainerDefinition
 
 Representation of an AWS ECS [Container Definition](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDefinition.html)
@@ -2966,7 +3172,7 @@ Representation of an AWS ECS [Task](https://docs.aws.amazon.com/AmazonECS/latest
 - ECSTasks have ECSTaskDefinitions
 
         ```
-        (ECSContainerInstance)-[HAS_TASK_DEFINITION]->(ECSTask)
+        (ECSTask)-[HAS_TASK_DEFINITION]->(ECSTaskDefinition)
         ```
 
 ### ECSContainer

@@ -23,7 +23,7 @@ GITHUB_ORG_REPOS_PAGINATED_GRAPHQL = """
         {
             url
             login
-            repositories(first: 100, after: $cursor){
+            repositories(first: 50, after: $cursor){
                 pageInfo{
                     endCursor
                     hasNextPage
@@ -59,7 +59,7 @@ GITHUB_ORG_REPOS_PAGINATED_GRAPHQL = """
                         login
                         __typename
                     }
-                    collaborators(affiliation: OUTSIDE, first: 100) {
+                    collaborators(affiliation: OUTSIDE, first: 50) {
                         edges {
                             permission
                         }
@@ -101,8 +101,14 @@ def get(token: str, api_url: str, organization: str) -> List[Dict]:
     :return: A list of dicts representing repos. See tests.data.github.repos for data shape.
     """
     # TODO: link the Github organization to the repositories
-    repos, _ = fetch_all(token, api_url, organization, GITHUB_ORG_REPOS_PAGINATED_GRAPHQL, 'repositories', 'nodes')
-    return repos
+    repos, _ = fetch_all(
+        token,
+        api_url,
+        organization,
+        GITHUB_ORG_REPOS_PAGINATED_GRAPHQL,
+        'repositories',
+    )
+    return repos.nodes
 
 
 def transform(repos_json: List[Dict]) -> Dict:
@@ -306,14 +312,13 @@ def _transform_python_requirements(
             continue
         try:
             req = Requirement(stripped_line)
+            parsed_list.append(req)
         except InvalidRequirement:
             # INFO and not WARN/ERROR as we intentionally don't support all ways to specify Python requirements
             logger.info(
                 f"Failed to parse line \"{line}\" in repo {repo_url}'s requirements.txt; skipping line.",
                 exc_info=True,
             )
-            continue
-        parsed_list.append(req)
 
     for req in parsed_list:
         pinned_version = None
@@ -372,7 +377,7 @@ def load_github_repos(neo4j_session: neo4j.Session, update_tag: int, repo_data: 
     :return: None
     """
     ingest_repo = """
-    UNWIND {RepoData} as repository
+    UNWIND $RepoData as repository
 
     MERGE (repo:GitHubRepository{id: repository.id})
     ON CREATE SET repo.firstseen = timestamp(),
@@ -393,14 +398,14 @@ def load_github_repos(neo4j_session: neo4j.Session, update_tag: int, repo_data: 
     repo.url = repository.url,
     repo.sshurl = repository.sshurl,
     repo.updatedat = repository.updatedat,
-    repo.lastupdated = {UpdateTag}
+    repo.lastupdated = $UpdateTag
 
     WITH repo
     WHERE repo.defaultbranch IS NOT NULL AND repo.defaultbranchid IS NOT NULL
     MERGE (branch:GitHubBranch{id: repo.defaultbranchid})
     ON CREATE SET branch.firstseen = timestamp()
     SET branch.name = repo.defaultbranch,
-    branch.lastupdated = {UpdateTag}
+    branch.lastupdated = $UpdateTag
 
     MERGE (repo)-[r:BRANCH]->(branch)
     ON CREATE SET r.firstseen = timestamp()
@@ -423,18 +428,18 @@ def load_github_languages(neo4j_session: neo4j.Session, update_tag: int, repo_la
     :return: Nothing
     """
     ingest_languages = """
-        UNWIND {Languages} as lang
+        UNWIND $Languages as lang
 
         MERGE (pl:ProgrammingLanguage{id: lang.language_name})
         ON CREATE SET pl.firstseen = timestamp(),
         pl.name = lang.language_name
-        SET pl.lastupdated = {UpdateTag}
+        SET pl.lastupdated = $UpdateTag
         WITH pl, lang
 
         MATCH (repo:GitHubRepository{id: lang.repo_id})
         MERGE (pl)<-[r:LANGUAGE]-(repo)
         ON CREATE SET r.firstseen = timestamp()
-        SET r.lastupdated = {UpdateTag}"""
+        SET r.lastupdated = $UpdateTag"""
 
     neo4j_session.run(
         ingest_languages,
@@ -454,16 +459,16 @@ def load_github_owners(neo4j_session: neo4j.Session, update_tag: int, repo_owner
     """
     for owner in repo_owners:
         ingest_owner_template = Template("""
-            MERGE (user:$account_type{id: {Id}})
+            MERGE (user:$account_type{id: $Id})
             ON CREATE SET user.firstseen = timestamp()
-            SET user.username = {UserName},
-            user.lastupdated = {UpdateTag}
+            SET user.username = $UserName,
+            user.lastupdated = $UpdateTag
             WITH user
 
-            MATCH (repo:GitHubRepository{id: {RepoId}})
+            MATCH (repo:GitHubRepository{id: $RepoId})
             MERGE (user)<-[r:OWNER]-(repo)
             ON CREATE SET r.firstseen = timestamp()
-            SET r.lastupdated = {UpdateTag}""")
+            SET r.lastupdated = $UpdateTag""")
 
         account_type = {'User': "GitHubUser", 'Organization': "GitHubOrganization"}
 
@@ -479,7 +484,7 @@ def load_github_owners(neo4j_session: neo4j.Session, update_tag: int, repo_owner
 @timeit
 def load_collaborators(neo4j_session: neo4j.Session, update_tag: int, collaborators: Dict) -> None:
     query = Template("""
-    UNWIND {UserData} as user
+    UNWIND $UserData as user
 
     MERGE (u:GitHubUser{id: user.url})
     ON CREATE SET u.firstseen = timestamp()
@@ -488,13 +493,13 @@ def load_collaborators(neo4j_session: neo4j.Session, update_tag: int, collaborat
     u.permission = user.permission,
     u.email = user.email,
     u.company = user.company,
-    u.lastupdated = {UpdateTag}
+    u.lastupdated = $UpdateTag
 
     WITH u, user
     MATCH (repo:GitHubRepository{id: user.repo_url})
     MERGE (repo)<-[o:$rel_label]-(u)
     ON CREATE SET o.firstseen = timestamp()
-    SET o.lastupdated = {UpdateTag}
+    SET o.lastupdated = $UpdateTag
     """)
     for collab_type in collaborators.keys():
         relationship_label = f"OUTSIDE_COLLAB_{collab_type}"
@@ -517,18 +522,18 @@ def load(neo4j_session: neo4j.Session, common_job_parameters: Dict, repo_data: D
 @timeit
 def load_python_requirements(neo4j_session: neo4j.Session, update_tag: int, requirements_objects: List[Dict]) -> None:
     query = """
-    UNWIND {Requirements} AS req
+    UNWIND $Requirements AS req
         MERGE (lib:PythonLibrary:Dependency{id: req.id})
         ON CREATE SET lib.firstseen = timestamp(),
         lib.name = req.name
-        SET lib.lastupdated = {UpdateTag},
+        SET lib.lastupdated = $UpdateTag,
         lib.version = req.version
 
         WITH lib, req
         MATCH (repo:GitHubRepository{id: req.repo_url})
         MERGE (repo)-[r:REQUIRES]->(lib)
         ON CREATE SET r.firstseen = timestamp()
-        SET r.lastupdated = {UpdateTag},
+        SET r.lastupdated = $UpdateTag,
         r.specifier = req.specifier
     """
     neo4j_session.run(
@@ -539,8 +544,11 @@ def load_python_requirements(neo4j_session: neo4j.Session, update_tag: int, requ
 
 
 def sync(
-    neo4j_session: neo4j.Session, common_job_parameters: Dict, github_api_key: str, github_url: str,
-    organization: str,
+        neo4j_session: neo4j.Session,
+        common_job_parameters: Dict[str, Any],
+        github_api_key: str,
+        github_url: str,
+        organization: str,
 ) -> None:
     """
     Performs the sequential tasks to collect, transform, and sync github data

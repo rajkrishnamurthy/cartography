@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 from typing import Dict
+from typing import Optional
 from typing import Union
 
 import neo4j
@@ -40,8 +41,13 @@ class GraphStatement:
     """
 
     def __init__(
-        self, query: str, parameters: Dict = None, iterative: bool = False, iterationsize: int = 0,
-        parent_job_name: str = None, parent_job_sequence_num: int = None,
+            self,
+            query: str,
+            parameters: Optional[Dict[Any, Any]] = None,
+            iterative: bool = False,
+            iterationsize: int = 0,
+            parent_job_name: Optional[str] = None,
+            parent_job_sequence_num: Optional[int] = None,
     ):
         self.query = query
         self.parameters = parameters or {}
@@ -81,14 +87,14 @@ class GraphStatement:
             "iterationsize": self.iterationsize,
         }
 
-    def _run_noniterative(self, tx: neo4j.Transaction) -> neo4j.StatementResult:
+    def _run_noniterative(self, tx: neo4j.Transaction) -> neo4j.Result:
         """
         Non-iterative statement execution.
         """
-        result: neo4j.StatementResult = tx.run(self.query, self.parameters)
+        result: neo4j.Result = tx.run(self.query, self.parameters)
 
         # Handle stats
-        summary: neo4j.BoltStatementResultSummary = result.summary()
+        summary: neo4j.ResultSummary = result.consume()
         stat_handler.incr('constraints_added', summary.counters.constraints_added)
         stat_handler.incr('constraints_removed', summary.counters.constraints_removed)
         stat_handler.incr('indexes_added', summary.counters.indexes_added)
@@ -112,17 +118,22 @@ class GraphStatement:
         self.parameters["LIMIT_SIZE"] = self.iterationsize
 
         while True:
-            result: neo4j.StatementResult = session.write_transaction(self._run_noniterative)
+            result: neo4j.Result = session.write_transaction(self._run_noniterative)
 
             # Exit if we have finished processing all items
-            if not result.summary().counters.contains_updates:
+            if not result.consume().counters.contains_updates:
                 # Ensure network buffers are cleared
                 result.consume()
                 break
             result.consume()
 
     @classmethod
-    def create_from_json(cls, json_obj: Dict, short_job_name: str = None, job_sequence_num: int = None):
+    def create_from_json(
+            cls,
+            json_obj: Dict[str, Any],
+            short_job_name: Optional[str] = None,
+            job_sequence_num: Optional[int] = None,
+    ):
         """
         Create a statement from a JSON blob.
         """
